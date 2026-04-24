@@ -38,12 +38,14 @@ src/
   cli/                         # CLI args、command routing、structured IO
   backend/                     # backend/provider API clients
   session/                     # session lifecycle、transcript、resume
+  app-state/                   # current process 的 in-memory AppState
   runtime/                     # agent turn loop、query engine、tool execution loop
   agent/                       # agents、subagents、tasks、team/swarm，以及 agent 專屬 tool calls
   tools/                       # LLM 可直接呼叫的通用 tool call executable code
   hooks/                       # hook schema、config、executor、hook UI/command
   skills/                      # skill load、bundled skills、SkillTool
   mcp/                         # MCP client、config、transport、MCP tools/UI/command
+  plugins/                     # plugin registry、marketplace、plugin commands/options
   remote-control/              # bridge、remote session、direct connect、teleport
   context-management/          # token budget、compact、context projection
   memory/                      # project/session/team memory、autoDream
@@ -71,6 +73,7 @@ src/interactiveHelpers.tsx
 src/entrypoints/**
 src/bootstrap/**
 src/projectOnboardingState.ts
+src/history.ts
 ```
 
 暫不搬進來：
@@ -162,6 +165,22 @@ src/session/resume/
 src/session/commands/
 ```
 
+### `src/app-state/`
+
+放 current process 的 in-memory state。這不是 session transcript，也不是 task executor，而是 runtime/UI 當下共享的 `AppState` store、selector、state update helper。
+
+第一批搬：
+
+```text
+src/state/**
+```
+
+不要放這裡：
+
+- `src/utils/sessionStorage.ts`：這是 persisted transcript，放 `session/`。
+- `src/tasks/**`：這是 background job executor，放 `agent/`。
+- `src/context/**`：這是 React context，放 `ui/context/`，除非該 context 明確屬於某個 domain。
+
 ### `src/runtime/`
 
 放 LLM turn loop、query engine、tool execution loop。第一批搬：
@@ -179,6 +198,8 @@ src/utils/queryHelpers.ts
 src/utils/queryProfiler.ts
 src/utils/processUserInput/**
 src/hooks/useMainLoopModel.ts
+src/entrypoints/sdk/**
+src/entrypoints/agentSdkTypes.ts
 ```
 
 暫不搬進來：
@@ -339,6 +360,38 @@ src/skills/commands/
 src/skills/ui/
 ```
 
+### `src/plugins/`
+
+放 plugin registry、bundled plugins、marketplace、plugin options、plugin command/UI。第一批搬：
+
+```text
+src/plugins/**
+src/utils/plugins/**
+src/services/plugins/**
+src/commands/plugin/**
+src/commands/reload-plugins/**
+src/hooks/useManagePlugins.ts
+src/hooks/useMergedCommands.ts
+src/hooks/useMergedTools.ts
+src/hooks/useMergedClients.ts
+src/hooks/usePluginRecommendationBase.tsx
+src/hooks/useOfficialMarketplaceNotification.tsx
+src/hooks/useLspPluginRecommendation.tsx
+src/hooks/notifs/usePluginInstallationStatus.tsx
+src/hooks/notifs/usePluginAutoupdateNotification.tsx
+src/components/ClaudeCodeHint/**
+```
+
+建議子資料夾：
+
+```text
+src/plugins/registry/
+src/plugins/marketplace/
+src/plugins/options/
+src/plugins/commands/
+src/plugins/ui/
+```
+
 ### `src/mcp/`
 
 放 MCP config、client、transport、MCP tools/resource、MCP command/UI。第一批搬：
@@ -391,6 +444,7 @@ src/commands/teleport/**
 src/utils/teleport.tsx
 src/utils/teleport/**
 src/utils/background/remote/**
+src/upstreamproxy/**
 src/hooks/useRemoteSession.ts
 src/hooks/useReplBridge.tsx
 src/hooks/useTeleportResume.tsx
@@ -420,6 +474,7 @@ src/utils/truncate.ts
 src/utils/toolResultStorage.ts
 src/utils/workloadContext.ts
 src/components/messages/CompactBoundaryMessage.tsx
+src/services/tokenEstimation.ts
 src/commands/compact/**
 src/commands/context/**
 src/commands/ctx_viz/**
@@ -487,6 +542,7 @@ src/utils/computerUse/**
 
 ```text
 src/utils/config.ts
+src/utils/configConstants.ts
 src/utils/settings/**
 src/utils/secureStorage/**
 src/utils/filePersistence/**
@@ -496,6 +552,10 @@ src/utils/cronScheduler.ts
 src/services/settingsSync/**
 src/services/remoteManagedSettings/**
 src/migrations/**
+src/utils/cachePaths.ts
+src/utils/lockfile.ts
+src/utils/jsonRead.ts
+src/utils/markdownConfigLoader.ts
 ```
 
 注意：
@@ -511,8 +571,8 @@ src/migrations/**
 src/components/**
 src/screens/**
 src/ink/**
+src/ink.ts
 src/context/**
-src/state/**
 src/hooks/**
 src/vim/**
 src/keybindings/**
@@ -520,6 +580,11 @@ src/outputStyles/**
 src/moreright/**
 src/buddy/**
 src/voice/**
+src/services/voice.ts
+src/services/voiceKeyterms.ts
+src/services/voiceStreamSTT.ts
+src/dialogLaunchers.tsx
+src/context.ts
 ```
 
 例外：
@@ -545,6 +610,16 @@ src/utils/which.ts
 src/utils/platform.ts
 src/utils/subprocessEnv.ts
 src/utils/Shell.ts
+src/utils/cwd.ts
+src/utils/process.ts
+src/utils/execFileNoThrow.ts
+src/utils/execFileNoThrowPortable.ts
+src/utils/execSyncWrapper.ts
+src/utils/findExecutable.ts
+src/utils/genericProcessUtils.ts
+src/utils/file.ts
+src/utils/glob.ts
+src/utils/path.ts
 ```
 
 ### `src/observability/`
@@ -556,13 +631,17 @@ src/services/analytics/**
 src/services/diagnosticTracking.ts
 src/services/internalLogging.ts
 src/utils/telemetry/**
+src/utils/telemetryAttributes.ts
 src/utils/log.ts
+src/utils/errorLogSink.ts
 src/utils/debug.ts
+src/utils/debugFilter.ts
 src/utils/diagLogs.ts
 src/utils/startupProfiler.ts
 src/utils/headlessProfiler.ts
 src/utils/fpsTracker.ts
 src/cost-tracker.ts
+src/costHook.ts
 src/commands/cost/**
 src/commands/usage/**
 src/commands/extra-usage/**
@@ -587,11 +666,15 @@ src/utils/uuid.ts
 src/utils/withResolvers.ts
 src/utils/yaml.ts
 src/utils/xml.ts
+src/utils/zodToJsonSchema.ts
+src/constants/**
+src/types/**
 ```
 
 規則：
 
 - 如果檔名看得出 domain，例如 `mcpValidation.ts`, `sessionStorage.ts`, `memoryFileDetection.ts`，不要放 shared。
+- `src/constants/**` 與 `src/types/**` 可先整包放 `shared/`，再用 domain exception 搬走，例如 `types/logs.ts` 到 `session/`、`types/permissions.ts` 到 `permissions/`、`types/hooks.ts` 到 `hooks/`、`constants/apiLimits.ts` 到 `backend/`。
 - shared 只收純函式、低階型別、跨 domain 基礎工具。
 
 ## 搬移順序
@@ -602,16 +685,18 @@ src/utils/xml.ts
 2. `observability/`
 3. `platform/`
 4. `session/`
-5. `mcp/`
-6. `skills/`
-7. `hooks/`
-8. `remote-control/`
-9. `context-management/`
-10. `memory/`
-11. `agent/`
-12. `runtime/`
-13. `ui/`
-14. `cli/`
+5. `app-state/`
+6. `plugins/`
+7. `mcp/`
+8. `skills/`
+9. `hooks/`
+10. `remote-control/`
+11. `context-management/`
+12. `memory/`
+13. `agent/`
+14. `runtime/`
+15. `ui/`
+16. `cli/`
 
 原因：
 
@@ -634,12 +719,14 @@ src/utils/xml.ts
 | --- | --- |
 | CLI 參數、啟動模式 | `src/cli/`, `src/app/` |
 | slash command | `src/cli/commands/` 或對應 domain 的 `commands/` |
+| current process state / AppState | `src/app-state/` |
 | 對話/agent 主流程 | `src/runtime/` |
 | 一般 tools | `src/tools/` |
 | agent / subagent / tasks | `src/agent/` |
 | MCP server/tool/resource | `src/mcp/` |
 | hooks | `src/hooks/` |
 | skills | `src/skills/` |
+| plugins / marketplace | `src/plugins/` |
 | remote control / mobile / bridge | `src/remote-control/` |
 | context compact / token budget | `src/context-management/` |
 | memory | `src/memory/` |
@@ -649,6 +736,137 @@ src/utils/xml.ts
 | TUI 畫面 | `src/ui/` 或各 domain 的 `ui/` |
 | analytics / logs / usage | `src/observability/` |
 | shell / git / native integration | `src/platform/` |
+
+## 原本 `src/*` 搬遷總表
+
+這張表用來檢查原本 `src/` 下的每個頂層檔案與資料夾都有去處。若該頂層資料夾內有明確 domain exception，以前面各 module 的清單為準。
+
+| 原本位置 | 新位置 | 備註 |
+| --- | --- | --- |
+| `src/assistant/**` | `src/session/` | 目前主要是 `sessionHistory.ts` |
+| `src/bootstrap/**` | `src/app/bootstrap/` | process/session bootstrap state |
+| `src/bridge/**` | `src/remote-control/bridge/` | remote bridge / REPL bridge |
+| `src/buddy/**` | `src/ui/buddy/` | TUI companion UI |
+| `src/cli/**` | `src/cli/` | 例外：`cli/handlers/mcp.tsx` 可放 `mcp/commands/`；transport 若只服務 remote 可放 `remote-control/` |
+| `src/commands/**` | 分散到各 domain 的 `commands/` | 例如 `commands/mcp` -> `mcp/commands`，`commands/memory` -> `memory/commands`，純 CLI 管理型 -> `cli/commands` |
+| `src/components/**` | `src/ui/components/` 或各 domain `ui/` | 例如 `components/mcp` -> `mcp/ui`，`components/permissions` -> `permissions/ui` |
+| `src/constants/**` | `src/shared/constants/` | domain constants 例外搬到對應 module，例如 `apiLimits` -> `backend/` |
+| `src/context/**` | `src/ui/context/` | React context，不是 context-management |
+| `src/coordinator/**` | `src/agent/coordinator/` | team/swarm/coordinator agent |
+| `src/entrypoints/**` | `src/app/entrypoints/` | 例外：`entrypoints/mcp.ts` -> `mcp/entrypoints/`，`entrypoints/sdk/**` -> `runtime/sdk/` |
+| `src/hooks/**` | `src/ui/hooks/` 或各 domain hooks | domain hooks 依前面清單搬，例如 skills/remote/hooks |
+| `src/ink/**` | `src/ui/ink/` | terminal renderer |
+| `src/keybindings/**` | `src/ui/keybindings/` | TUI input/keybinding |
+| `src/memdir/**` | `src/memory/project/` | project/team memory files |
+| `src/migrations/**` | `src/persistence/migrations/` | settings/config/data migration |
+| `src/moreright/**` | `src/ui/moreright/` | TUI behavior |
+| `src/native-ts/**` | `src/platform/native-ts/` | native/ported TS implementation |
+| `src/outputStyles/**` | `src/ui/outputStyles/` | output style loading/display |
+| `src/plugins/**` | `src/plugins/bundled/` | bundled plugin definitions |
+| `src/query/**` | `src/runtime/query/` | 例外：`tokenBudget.ts` -> `context-management/`，`stopHooks.ts` -> `hooks/` |
+| `src/remote/**` | `src/remote-control/session/` | remote session manager/websocket |
+| `src/schemas/**` | domain schema | 目前 `schemas/hooks.ts` -> `hooks/schema/` |
+| `src/screens/**` | `src/ui/screens/` | TUI screens |
+| `src/server/**` | `src/remote-control/direct-connect/` | direct connect server |
+| `src/services/**` | 分散到 domain | `api` -> `backend`，`mcp` -> `mcp`，`compact` -> `context-management`，`analytics` -> `observability`，`SessionMemory/autoDream/teamMemorySync/extractMemories` -> `memory` |
+| `src/skills/**` | `src/skills/` | skill registry/bundled skills |
+| `src/state/**` | `src/app-state/` | in-memory AppState |
+| `src/tasks/**` | `src/agent/tasks/` | background job executors |
+| `src/tools/**` | `src/tools/` 或 domain `tools/` | Agent tools -> `agent/tools`，MCP tools -> `mcp/tools`，SkillTool -> `skills/tool` |
+| `src/types/**` | `src/shared/types/` | domain types 例外搬到對應 module，例如 `logs`/`permissions`/`hooks` |
+| `src/upstreamproxy/**` | `src/remote-control/upstreamproxy/` | remote/proxy transport |
+| `src/utils/**` | 分散到 domain 或 `shared/` | 依檔名 domain 搬；無 domain 的純 utility 才放 `shared/utils/` |
+| `src/vim/**` | `src/ui/vim/` | TUI input mode |
+| `src/voice/**` | `src/ui/voice/` | voice mode UI/state |
+| `src/commands.ts` | `src/cli/commands.ts` | command registry |
+| `src/context.ts` | `src/ui/context.ts` | prompt/user context assembly，若 runtime 強依賴可放 `runtime/context.ts` |
+| `src/cost-tracker.ts` | `src/observability/cost-tracker.ts` | cost/usage tracking |
+| `src/costHook.ts` | `src/observability/costHook.ts` | cost hook |
+| `src/dialogLaunchers.tsx` | `src/ui/dialogLaunchers.tsx` | TUI dialog launch helpers |
+| `src/history.ts` | `src/app/history.ts` | CLI input/history bootstrap support |
+| `src/ink.ts` | `src/ui/ink.ts` | Ink entry export |
+| `src/interactiveHelpers.tsx` | `src/app/interactiveHelpers.tsx` | app startup/render helpers |
+| `src/main.tsx` | `src/app/main.tsx` | main process entry |
+| `src/projectOnboardingState.ts` | `src/app/projectOnboardingState.ts` | onboarding bootstrap state |
+| `src/query.ts` | `src/runtime/query.ts` | LLM turn loop |
+| `src/QueryEngine.ts` | `src/runtime/QueryEngine.ts` | runtime query engine |
+| `src/replLauncher.tsx` | `src/app/replLauncher.tsx` | REPL launch wiring |
+| `src/setup.ts` | `src/app/setup.ts` | setup entry/helper |
+| `src/Task.ts` | `src/agent/Task.ts` | task types/base helpers |
+| `src/tasks.ts` | `src/agent/tasks.ts` | task registry |
+| `src/Tool.ts` | `src/tools/Tool.ts` | generic tool interface/type |
+| `src/tools.ts` | `src/tools/tools.ts` | generic tool registry |
+
+### `src/services/*` 詳細搬遷
+
+| 原本位置 | 新位置 | 備註 |
+| --- | --- | --- |
+| `src/services/AgentSummary/**` | `src/agent/summary/` |  |
+| `src/services/analytics/**` | `src/observability/analytics/` |  |
+| `src/services/api/**` | `src/backend/api/` |  |
+| `src/services/autoDream/**` | `src/memory/consolidation/autoDream/` |  |
+| `src/services/compact/**` | `src/context-management/compact/` |  |
+| `src/services/extractMemories/**` | `src/memory/extraction/` |  |
+| `src/services/lsp/**` | `src/platform/lsp/` |  |
+| `src/services/MagicDocs/**` | `src/runtime/magic-docs/` |  |
+| `src/services/mcp/**` | `src/mcp/client/` |  |
+| `src/services/oauth/**` | `src/backend/oauth/` |  |
+| `src/services/plugins/**` | `src/plugins/services/` |  |
+| `src/services/policyLimits/**` | `src/backend/policy-limits/` |  |
+| `src/services/PromptSuggestion/**` | `src/ui/prompt-suggestion/` |  |
+| `src/services/remoteManagedSettings/**` | `src/persistence/remote-managed-settings/` |  |
+| `src/services/SessionMemory/**` | `src/memory/session/` |  |
+| `src/services/settingsSync/**` | `src/persistence/settings-sync/` |  |
+| `src/services/teamMemorySync/**` | `src/memory/team/sync/` |  |
+| `src/services/tips/**` | `src/ui/tips/` |  |
+| `src/services/tools/**` | `src/runtime/tools/` | 例外：`toolHooks.ts` -> `hooks/` |
+| `src/services/toolUseSummary/**` | `src/runtime/tool-use-summary/` |  |
+| `src/services/claudeAiLimits.ts` | `src/backend/limits/claudeAiLimits.ts` |  |
+| `src/services/diagnosticTracking.ts` | `src/observability/diagnosticTracking.ts` |  |
+| `src/services/internalLogging.ts` | `src/observability/internalLogging.ts` |  |
+| `src/services/mcpServerApproval.tsx` | `src/mcp/ui/mcpServerApproval.tsx` |  |
+| `src/services/tokenEstimation.ts` | `src/context-management/token-estimation.ts` |  |
+| `src/services/vcr.ts` | `src/observability/vcr.ts` |  |
+| `src/services/voice.ts` | `src/ui/voice/voice.ts` |  |
+| `src/services/voiceKeyterms.ts` | `src/ui/voice/voiceKeyterms.ts` |  |
+| `src/services/voiceStreamSTT.ts` | `src/ui/voice/voiceStreamSTT.ts` |  |
+
+### `src/utils/*` 詳細搬遷
+
+| 原本位置 | 新位置 | 備註 |
+| --- | --- | --- |
+| `src/utils/background/**` | `src/remote-control/background/` |  |
+| `src/utils/bash/**` | `src/platform/bash/` |  |
+| `src/utils/claudeInChrome/**` | `src/mcp/claude-in-chrome/` 或 `src/ui/chrome/` | MCP server 放 `mcp/`，setup/rendering 放 `ui/` |
+| `src/utils/computerUse/**` | `src/permissions/computer-use/` | 其中 MCP server 可放 `mcp/computer-use/` |
+| `src/utils/deepLink/**` | `src/remote-control/deep-link/` |  |
+| `src/utils/dxt/**` | `src/plugins/dxt/` |  |
+| `src/utils/filePersistence/**` | `src/persistence/filePersistence/` |  |
+| `src/utils/git/**` | `src/platform/git/` |  |
+| `src/utils/github/**` | `src/platform/github/` |  |
+| `src/utils/hooks/**` | `src/hooks/` |  |
+| `src/utils/mcp/**` | `src/mcp/utils/` |  |
+| `src/utils/memory/**` | `src/memory/utils/` |  |
+| `src/utils/messages/**` | `src/runtime/messages/` |  |
+| `src/utils/model/**` | `src/backend/model/` |  |
+| `src/utils/nativeInstaller/**` | `src/platform/nativeInstaller/` |  |
+| `src/utils/permissions/**` | `src/permissions/` |  |
+| `src/utils/plugins/**` | `src/plugins/` |  |
+| `src/utils/powershell/**` | `src/platform/powershell/` |  |
+| `src/utils/processUserInput/**` | `src/runtime/processUserInput/` |  |
+| `src/utils/sandbox/**` | `src/permissions/sandbox/` |  |
+| `src/utils/secureStorage/**` | `src/persistence/secureStorage/` |  |
+| `src/utils/settings/**` | `src/persistence/settings/` |  |
+| `src/utils/shell/**` | `src/platform/shell/` |  |
+| `src/utils/skills/**` | `src/skills/utils/` |  |
+| `src/utils/suggestions/**` | `src/ui/suggestions/` | skill usage tracking 可放 `skills/` |
+| `src/utils/swarm/**` | `src/agent/swarm/` |  |
+| `src/utils/task/**` | `src/agent/task/` |  |
+| `src/utils/telemetry/**` | `src/observability/telemetry/` |  |
+| `src/utils/teleport/**` | `src/remote-control/teleport/` |  |
+| `src/utils/todo/**` | `src/tools/todo/` |  |
+| `src/utils/ultraplan/**` | `src/agent/ultraplan/` |  |
+| `src/utils/*.ts`, `src/utils/*.tsx` | domain 或 `src/shared/utils/` | 檔名有明確 domain 就搬 domain；否則放 shared |
 
 ## 最小可交付版本
 
@@ -660,3 +878,4 @@ src/utils/xml.ts
 - 建立 diff 檢查規則：除了 import/export/require path，不允許其他 code diff。
 
 完成後，團隊就能用同一套規則繼續搬其他 module，而不是在每次 PR 重新討論結構。
+
