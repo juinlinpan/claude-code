@@ -189,6 +189,389 @@ idle
 
 這樣切完後，agent 的心智模型會很簡單：**拿 messages，跑到 stable boundary，交還控制權**。複雜的 session 排程則集中在 session controller。
 
+## 如果 session 運行到一半被終止，下次怎麼 resume？
+
+Claude Code 不是把整個 JS runtime、正在跑的 Promise、shell process、tool executor 狀態 checkpoint 起來。它的 resume 比較像：
+
+> 從 session transcript JSONL 重建一條合法的 conversation chain；如果發現上一輪中途斷掉，就修掉半截訊息，必要時注入一個 meta prompt 叫模型繼續。
+
+大流程可以理解成：
+
+```text
+session 運行中
+  -> user / assistant / tool_result / attachment / progress 持續寫進 transcript
+  -> process 被終止
+
+下次 resume
+  -> 找到 session log
+  -> 用 uuid / parentUuid 重建 conversation chain
+  -> 過濾半截 tool_use / 孤兒 thinking / 空白 assistant
+  -> 判斷是不是 mid-turn interrupted
+  -> 必要時注入 "Continue from where you left off."
+  -> restore metadata / cwd / worktree / agent / file history / compact state
+  -> 重新進入 QueryEngine / query loop
+```
+
+核心檔案：
+
+```text
+src/utils/conversationRecovery.ts
+src/utils/sessionRestore.ts
+src/utils/sessionStorage.ts
+src/commands/resume/resume.tsx
+```
+
+### 1. 先載入 transcript，而不是恢復 process
+
+`loadConversationForResume()` 會依來源載入對話：
+
+- 沒指定來源：載入最近 session，類似 `--continue`。
+- 指定 session id：用 `getLastSessionLog(sessionId)` 找該 session。
+- 指定 `.jsonl`：直接從 transcript 檔案 chain-walk。
+- slash command `/resume`：先顯示 picker，再把選到的 log 傳給 resume flow。
+
+載入後如果是 lite log，會補成 full log；接著會做：
+
+- `checkResumeConsistency(messages)`：檢查 resume 載入的內容是否和 in-session 狀態一致。
+- `restoreSkillStateFromMessages(messages)`：從 invoked skills attachment 還原 skill 狀態。
+- `deserializeMessagesWithInterruptDetection(messages)`：修復/判斷中斷。
+- `processSessionStartHooks('resume')`：跑 resume 時的 session start hooks。
+
+### 2. 用 uuid / parentUuid 重建 conversation chain
+
+`sessionStorage.ts` 會把 transcript 當成一堆帶有 `uuid` / `parentUuid` 的節點。Resume 時不是單純讀整個檔案尾端，而是：
+
+```text
+loadTranscriptFile()
+  -> 找 leaf uuid
+  -> buildConversationChain()
+  -> removeExtraFields()
+```
+
+leaf 的判斷會偏向 user/assistant message，因為 system / attachment / progress 多半是 metadata 或輔助訊息，不應該單獨成為主 conversation 的結尾。
+
+這就是為什麼 session log 裡的 parent chain 很重要。若 parent chain 斷掉，resume 可能載太多、載太少，或接到錯的分支。
+
+### 3. 清掉不合法的半截訊息
+
+最關鍵的邏輯在 `deserializeMessagesWithInterruptDetection()`。
+
+它會先做幾種清理：
+
+- **migrate legacy attachment**：把舊 session 的 attachment schema 轉成新格式。
+- **移除 invalid permissionMode**：避免不同 build 的 permission mode 污染新 runtime。
+- **filter unresolved tool uses**：如果 assistant 有 `tool_use`，但沒有對應 `tool_result`，就移除這類不完整工具呼叫。
+- **filter orphaned thinking-only messages**：streaming 中斷時可能只留下 thinking block，resume 前要清掉。
+- **filter whitespace-only assistant messages**：模型剛吐空白就被中斷時，這種 assistant message 不能拿來當有效回覆。
+
+這一步的目標很明確：**把 transcript 修成下一次 API request 可以接受的合法 message history**。
+
+### 4. 判斷上一輪是不是中途斷掉
+
+清理完後，`detectTurnInterruption()` 會看最後一個「turn-relevant」message：
+
+| 最後訊息 | 判斷 |
+|---|---|
+| assistant | 通常視為上一輪完成 |
+| 普通 user | `interrupted_prompt`，表示 user prompt 已記錄，但 assistant 還沒完整回 |
+| tool_result | 多數情況是 `interrupted_turn`，表示工具結果回來後 assistant 還沒接著回答 |
+| attachment | `interrupted_turn`，表示 context 已加入但 assistant 沒完成 |
+| system/progress | 跳過，不用它們判斷 turn 是否完成 |
+| API error assistant | 跳過，避免把 retry exhaustion 誤判成完成 |
+
+有些 terminal tool result 例外，例如 brief / send-user 類工具。這類工具本身可能就是回合最後一步，所以 transcript 結尾是 tool_result 不一定代表中斷。
+
+### 5. 如果是 interrupted turn，注入 continuation
+
+若判定為 `interrupted_turn`，resume 會 append 一個 meta user message：
+
+```text
+Continue from where you left off.
+```
+
+這不是使用者手打的新需求，而是 session recovery 用的 hidden/meta prompt。目的就是讓模型在下一次 agent loop 裡接續剛剛未完成的 reasoning / response。
+
+若最後 relevant message 是普通 user message，還會補一個 synthetic assistant sentinel，例如 `NO_RESPONSE_REQUESTED`，讓 conversation 在 API 格式上保持合法。這個 sentinel 的用途是讓「已記錄 user，但尚未真正得到 assistant」的狀態不會破壞後續 resume 操作。
+
+### 6. restore session-side state
+
+`sessionRestore.ts` 負責把 transcript 以外的 session 狀態補回來：
+
+- file history state
+- attribution state
+- context-collapse commit / staged snapshot
+- TodoWrite 狀態
+- agent setting / agent model override
+- coordinator / normal mode
+- session metadata / title / tag
+- worktree cwd
+- cost state
+- asciicast recording 名稱
+
+也就是說，resume 不是只還原 messages。它還會盡量把「這個 session 的周邊狀態」恢復到上次的樣子。
+
+### 7. 不能恢復什麼？
+
+重要限制：
+
+- 正在跑的 shell command 不會原地恢復。
+- 正在跑的 HTTP request / MCP call 不會原地恢復。
+- JS heap、Promise、generator、tool executor queue 不會 checkpoint。
+- 如果工具已經對檔案改了一半，磁碟狀態會留下來，但 tool 的 in-memory 狀態不會回來。
+- 如果 process 在 transcript flush 前死亡，最後幾個 streaming block 可能遺失。
+- 如果 tool_use 沒有 tool_result，resume 會傾向清掉或修復，而不是硬接半截 tool call。
+
+所以 Claude Code 的 resume 是 **conversation-level recovery**，不是 **process-level recovery**。
+
+### 8. 對重構的啟示
+
+這也支持前面 `session.ts` / `agent.ts` 的切分：
+
+```text
+SessionController.resume()
+  -> load transcript
+  -> recover legal message chain
+  -> restore session-side state
+  -> optionally inject continuation prompt
+  -> call AgentRuntime again
+```
+
+`agent.ts` 不應該知道「上次 process 死在哪個 JS stack frame」。它只需要拿到一組已修復、API 合法的 messages，然後正常跑 ReAct loop。  
+`session.ts` 才應該擁有 resume / recovery / transcript chain / metadata restore 這些責任。
+
+## Session 持久化：到底存了什麼？Sub-agent 也會被記錄嗎？
+
+Claude Code 的 session persistence 不是只存「聊天文字」。它主要存兩層東西：
+
+1. **主 session transcript**：主 agent 的 conversation chain。
+2. **side data / metadata**：resume、compact、worktree、file history、sub-agent resume 所需的輔助狀態。
+
+主 session transcript 大致存成 JSONL：
+
+```text
+.claude/projects/<project>/<sessionId>.jsonl
+```
+
+每一行是一個 entry。真正參與 conversation chain 的主要是：
+
+```text
+user
+assistant
+attachment
+system
+```
+
+這些 entry 會帶有：
+
+```text
+uuid
+parentUuid
+sessionId
+cwd
+timestamp
+version
+gitBranch
+isSidechain
+entrypoint
+userType
+```
+
+其中 `uuid` / `parentUuid` 是 resume 時重建 conversation chain 的核心。不是單純讀整個檔案順序，而是用 parent chain 找到正確的主線。
+
+### 1. 哪些東西會進主 session？
+
+主 session 會記錄：
+
+- user prompt。
+- assistant message。
+- tool result，通常是 user message 形式的 `tool_result`。
+- attachment，例如 file change、queued command attachment、compact boundary、skill attachment。
+- system message，例如 warning、compact boundary 等。
+
+此外還會記錄一些不一定直接送給模型、但 resume 或 UI 需要的 entry：
+
+```text
+queue-operation
+summary
+custom-title
+ai-title
+last-prompt
+task-summary
+tag
+agent-name
+agent-color
+agent-setting
+mode
+worktree-state
+file-history-snapshot
+attribution-snapshot
+content-replacement
+context-collapse commit/snapshot
+pr-link
+speculation-accept
+```
+
+所以 session file 同時是：
+
+- conversation log。
+- resume index。
+- session metadata store。
+- compact / content replacement replay source。
+- worktree / agent setting restore source。
+
+### 2. 什麼不會當成主 transcript？
+
+不是所有 runtime event 都會進主 conversation chain。
+
+例如 progress message 很特殊。舊版本可能曾寫入 progress，但現在 `sessionStorage.ts` 註解明確說，progress 是 ephemeral UI state，不應該參與 parentUuid chain。原因是 progress 如果進 chain，可能讓 resume 時 chain fork，導致真正的 conversation message 被 orphan。
+
+所以概念上：
+
+```text
+conversation chain:
+  user / assistant / attachment / system
+
+ephemeral / auxiliary:
+  progress ticks
+  high-frequency bash/powershell/mcp progress
+  UI-only state
+```
+
+有些 progress 或 attachment 仍可能被記錄或 bridge，但它們不能隨便成為主 conversation 的 leaf。
+
+### 3. Sub-agent 也會被記錄，但存在 sidechain
+
+Sub-agent 的完整對話不會直接塞進 main session transcript。它會寫到獨立 sidechain transcript：
+
+```text
+.claude/projects/<project>/<sessionId>/subagents/agent-<agentId>.jsonl
+```
+
+這是由 `recordSidechainTranscript()` 寫入，底層仍然使用類似的 message chain 格式，但 entry 會標成：
+
+```text
+isSidechain: true
+agentId: <agentId>
+```
+
+另外還會有 sidecar metadata：
+
+```text
+.claude/projects/<project>/<sessionId>/subagents/agent-<agentId>.meta.json
+```
+
+裡面記：
+
+```text
+agentType
+worktreePath
+description
+```
+
+這些 metadata 的用途是：如果之後要 resume 某個 sub-agent，可以知道它原本是哪種 agent、是否在 worktree 裡、原始任務描述是什麼。
+
+### 4. Main agent 看不到 sub-agent 的完整對話
+
+這點很重要：**main agent 通常看不到 sub-agent 的完整 transcript**。
+
+Main agent 在自己的 conversation 裡看到的通常是：
+
+```text
+assistant: tool_use Agent(...)
+user: tool_result(...)
+```
+
+或背景 agent 完成後進 queue 的 task notification：
+
+```xml
+<task-notification>
+  <task-id>...</task-id>
+  <output-file>...</output-file>
+  <status>completed</status>
+  <summary>Agent "..." completed</summary>
+  <result>...</result>
+</task-notification>
+```
+
+也就是 main agent 看到的是：
+
+- sub-agent 的最終結果。
+- summary。
+- output file path。
+- status。
+- usage / duration 等摘要資訊。
+
+它不會自動看到 sub-agent 每一步 reasoning、每次 tool call、每個 intermediate assistant message。那些存在 sidechain 裡，主要給 UI、resume、debug、task transcript 查看使用。
+
+### 5. 為什麼 sub-agent 要另存 sidechain？
+
+原因有幾個：
+
+- **隔離上下文**：main agent 不應被 sub-agent 的完整內部對話污染。
+- **避免 token 爆炸**：sub-agent 可能做大量 read/search/tool call，全部塞回 main session 會讓上下文膨脹。
+- **支援 sub-agent resume**：`resumeAgent.ts` 可以讀 `getAgentTranscript()` 和 `readAgentMetadata()`，把該 sub-agent 接著跑。
+- **支援 UI 查看**：background task transcript 可以被前景查看，但不等於 main model context。
+- **支援 fork/context reconstruction**：forked agent 需要自己的 parent chain 和 content replacement 狀態。
+- **避免主 session resume 走錯分支**：sidechain entry 不該成為主 conversation leaf。
+
+### 6. `/resume` picker 會過濾 sidechain
+
+主 `/resume` 不是讓使用者直接 resume 某個 sidechain transcript。`sessionStorage.ts` 的 log enrichment 會過濾：
+
+```text
+isSidechain: true
+teamName exists
+agent session
+```
+
+因此一般 `/resume` 看到的是主 session，不是每個 sub-agent 的內部 session。
+
+Sub-agent resume 是另一條路徑，由 agent tooling 讀 sidechain transcript 和 metadata 來恢復。
+
+### 7. content replacement 也分 main / sub-agent
+
+`content-replacement` entry 有一個重要欄位：
+
+```text
+agentId?: AgentId
+```
+
+如果有 `agentId`，表示這筆 replacement 屬於 sub-agent sidechain；如果沒有，表示屬於 main-thread session。
+
+這很重要，因為 resume 時要重建「哪些大型 tool result 被替換成 stub、完整內容存在別處」。Main-thread 和 sub-agent 的 replacement 狀態不能混在一起，否則 resume 後 prompt cache 或 tool result reconstruction 會錯。
+
+### 8. 對架構重構的啟示
+
+如果未來拆成 `session.ts` / `agent.ts`，storage 邊界應該類似：
+
+```text
+SessionStorage
+  - main transcript
+  - session metadata
+  - queue operation
+  - compact / content replacement
+  - worktree / title / tag / mode
+
+AgentSidechainStorage
+  - sub-agent transcript
+  - agent metadata
+  - sub-agent content replacement
+  - sub-agent resume source
+
+SessionController
+  - 決定哪些 event 寫 main transcript
+  - 決定哪些 event 寫 sidechain
+  - 決定哪些 sub-agent result 回流成 main task notification
+
+AgentRuntime
+  - 不直接關心自己被存在 main 還是 sidechain
+  - 只產生 messages / progress / result
+```
+
+一句話總結：
+
+> Main session 存主 conversation chain 和 session metadata；sub-agent 也會存，但存在獨立 sidechain transcript。Main agent 通常只看見 sub-agent 的 result / summary / notification，不會自動看到 sub-agent 的完整對話。
+
 ## Session 模型
 
 ### 1. Conversation owner
