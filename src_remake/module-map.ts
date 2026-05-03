@@ -21,6 +21,8 @@ export const moduleRouteMap: Record<string, ModuleRoute> = {
       'src/constants/common.ts',
       'src/constants/messages.ts',
       'src/constants/errorIds.ts',
+      'src/constants/toolLimits.ts',
+      'src/constants/turnCompletionVerbs.ts',
     ],
   },
   sharedTypes: {

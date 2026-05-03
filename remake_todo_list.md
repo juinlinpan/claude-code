@@ -64,14 +64,22 @@
 - 新增 `src_remake/README.md`，作為新結構的入口說明。
 - 新增 `src_remake/module-map.ts`，把研究文件整理成可追蹤的程式化路由表。
 - 新增 `src_remake/backend/app/projectOnboardingState.ts`，作為第一個搬入新結構的模組。
-- 新增 `src_remake/shared/constants/common.ts`、`src_remake/shared/constants/messages.ts`、`src_remake/shared/constants/errorIds.ts` 與 `src_remake/shared/types/ids.ts`，建立第一批 shared foundations。
+- 新增 `src_remake/shared/constants/common.ts`、`src_remake/shared/constants/messages.ts`、`src_remake/shared/constants/errorIds.ts`、`src_remake/shared/constants/turnCompletionVerbs.ts`、`src_remake/shared/constants/toolLimits.ts` 與 `src_remake/shared/types/ids.ts`，建立第一批 shared foundations。
 
 ## 本輪更新（2026-05-03）
 
-- active migration slice: `src/constants/errorIds.ts` -> `src_remake/shared/constants/errorIds.ts`
-- copied or reorganized: 原樣複製 `errorIds.ts` 到 remake shared constants，並更新 `src_remake/shared/constants/index.ts` 與 `src_remake/module-map.ts`。
-- legacy imports: 本輪新增的 `errorIds.ts` 沒有 import，也沒有 runtime side effect；仍維持不修改原始 `src/`。
-- validation: touched files 的靜態錯誤檢查通過，且 `diff -u src/constants/errorIds.ts src_remake/shared/constants/errorIds.ts` 與 `diff -u src/constants/messages.ts src_remake/shared/constants/messages.ts` 均無輸出，確認原始 `src/` 未修改，複本也沒有非路徑內容差異。
+- active migration slice: `src/constants/turnCompletionVerbs.ts` -> `src_remake/shared/constants/turnCompletionVerbs.ts`
+- copied or reorganized: 原樣複製 `turnCompletionVerbs.ts` 到 remake shared constants，並更新 `src_remake/shared/constants/index.ts`、`src_remake/module-map.ts` 與 `src_remake/README.md`。
+- legacy imports: 本輪新增的 `turnCompletionVerbs.ts` 沒有 import，也沒有 runtime side effect；仍維持不修改原始 `src/`。
+- validation: `src_remake/shared/constants/turnCompletionVerbs.ts`、`src_remake/shared/constants/index.ts` 與 `src_remake/module-map.ts` 的靜態錯誤檢查通過；`diff -u src/constants/turnCompletionVerbs.ts src_remake/shared/constants/turnCompletionVerbs.ts` 只抓到檔尾 newline 差異，補齊後即可維持 byte-for-byte 一致。
+- next slice to migrate: 續挑 `src/constants/` 中同樣沒有 import 的 pure constants 檔案，優先擴大 `src_remake/shared/constants/`。
+
+## 本輪更新（2026-05-03, round 2）
+
+- active migration slice: `src/constants/toolLimits.ts` -> `src_remake/shared/constants/toolLimits.ts`
+- copied or reorganized: 原樣複製 `toolLimits.ts` 到 remake shared constants，並更新 `src_remake/shared/constants/index.ts`、`src_remake/module-map.ts` 與 `src_remake/README.md`。
+- legacy imports: 本輪新增的 `toolLimits.ts` 沒有 import，也沒有 runtime side effect；仍維持不修改原始 `src/`。
+- validation: `src_remake/shared/constants/toolLimits.ts`、`src_remake/shared/constants/index.ts` 與 `src_remake/module-map.ts` 的靜態錯誤檢查通過；`diff -u src/constants/toolLimits.ts src_remake/shared/constants/toolLimits.ts` 無輸出，確認複本與原始檔完全一致。
 - next slice to migrate: 續挑 `src/constants/` 中同樣沒有 import 的 pure constants 檔案，優先擴大 `src_remake/shared/constants/`。
 
 ## 下一步

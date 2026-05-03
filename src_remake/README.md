@@ -57,7 +57,10 @@ src_remake/
 ## 已開始搬運
 
 - `shared/constants/common.ts`
+- `shared/constants/errorIds.ts`
 - `shared/constants/messages.ts`
+- `shared/constants/toolLimits.ts`
+- `shared/constants/turnCompletionVerbs.ts`
 - `shared/types/ids.ts`
 - `backend/app/projectOnboardingState.ts`
 - `backend/app/index.ts`
