@@ -13,6 +13,22 @@ export type ModuleRoute = {
 }
 
 export const moduleRouteMap: Record<string, ModuleRoute> = {
+  sharedConstants: {
+    phase: 'phase-1-foundations',
+    newPath: 'src_remake/shared/constants',
+    notes: 'Pure constants and small config literals that can move without runtime changes.',
+    sources: [
+      'src/constants/common.ts',
+      'src/constants/messages.ts',
+      'src/constants/errorIds.ts',
+    ],
+  },
+  sharedTypes: {
+    phase: 'phase-1-foundations',
+    newPath: 'src_remake/shared/types',
+    notes: 'Cross-layer branded IDs and other pure type helpers.',
+    sources: ['src_remake/shared/types/ids.ts', 'src/types/**'],
+  },
   backendApp: {
     phase: 'phase-1-foundations',
     newPath: 'src_remake/backend/app',
@@ -142,6 +158,8 @@ export const moduleRouteMap: Record<string, ModuleRoute> = {
 }
 
 export const initialRemakeTargets = [
+  'sharedConstants',
+  'sharedTypes',
   'backendApp',
   'backendPlatform',
   'backendPersistence',

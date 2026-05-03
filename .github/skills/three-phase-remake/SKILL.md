@@ -26,6 +26,17 @@ The goal is to let the project move forward in many small rounds while keeping e
 - Every round must leave behind an updated markdown trail so the next round can continue without rediscovery.
 - If a phase is blocked, write the blocker and the narrowest next step instead of broad speculation.
 
+## Reform Rule Overlay
+
+When this repository uses `research/reform.md` as the active Phase 2 migration plan, treat these as hard constraints for TypeScript re-org rounds:
+
+- Do not modify original `src/` file contents during Phase 2. Re-org work should happen in `src_remake/` and related tracking docs.
+- Do not change function bodies, runtime logic, type/interface names, field shapes, or formatting as part of a move.
+- Allowed code edits are limited to copying or moving files, creating destination folders, and updating import/export/require paths caused by the move.
+- Move one module or one tightly coupled dependency slice per round; do not mix broad architecture cleanup into the same round.
+- If a file is still frontend/backend mixed, place it under `src_remake/unresolved-fullstack/` or record it as blocked instead of force-splitting it.
+- Validation for a move round should include a diff check confirming there are no non-path content changes.
+
 ## Phase Selection
 
 Choose the active phase before touching files.
@@ -111,6 +122,12 @@ Each Phase 2 round should write:
 - what validation proved the move is safe
 - next slice to migrate
 
+Each Phase 2 round should also confirm, when `research/reform.md` governs the round:
+
+- whether original `src/` files were left untouched
+- whether the copied files remained byte-for-byte identical except for path updates, if any
+- whether diff review showed no logic or formatting changes
+
 ### For Phase 3 rounds
 
 Update one or more of these:
@@ -180,6 +197,7 @@ A round is complete only if all are true:
 - the code or document change is scoped to one narrow goal
 - one validation step was run, or a concrete reason is recorded when validation was impossible
 - the next round starts from a clearly named file, module, or question
+- for Phase 2 rounds under `research/reform.md`, the result also preserves the no-legacy-edit and no-logic-change constraints
 
 ## Suggested Execution Style
 
